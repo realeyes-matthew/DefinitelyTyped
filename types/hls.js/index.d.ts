@@ -60,6 +60,8 @@ type K_FPS_DROP_LEVEL_CAPPING = "hlsFpsDropLevelCapping";
 type K_ERROR = "hlsError";
 type K_DESTROYING = "hlsDestroying";
 type K_STREAM_STATE_TRANSITION = "hlsStreamStateTransition";
+type K_EME_CONFIGURING = "hlsEMEConfiguring";
+type K_EME_CONFIGURED = "hlsEMEConfigured";
 
 // Error Type Keys
 type K_NETWORK_ERROR = "networkError";
@@ -80,7 +82,7 @@ type K_FRAG_LOAD_ERROR = "fragLoadError";
 type K_FRAG_LOAD_TIMEOUT = "fragLoadTimeout";
 type K_KEY_LOAD_ERROR = "keyLoadError";
 type K_KEY_LOAD_TIMEOUT = "keyLoadTimeout";
-// MEDIA_ERRORS //
+// MEDIA_ERROR //
 type K_MANIFEST_INCOMPATIBLE_CODECS_ERROR = "manifestIncompatibleCodecsError";
 type K_FRAG_LOOP_LOADING_ERROR = "fragLoopLoadingError";
 type K_FRAG_DECRYPT_ERROR = "fragDecryptError";
@@ -92,6 +94,12 @@ type K_BUFFER_STALLED_ERROR = "bufferStalledError";
 type K_BUFFER_FULL_ERROR = "bufferFullError";
 type K_BUFFER_SEEK_OVER_HOLE = "bufferSeekOverHole";
 type K_BUFFER_NUDGE_ON_STALL = "bufferNudgeOnStall";
+// KEY_SYSTEM_ERROR //
+type K_KEY_SYSTEM_NO_KEYS = "keySystemNoKeys";
+type K_KEY_SYSTEM_NO_ACCESS = "keySystemNoAccess";
+type K_KEY_SYSTEM_NO_SESSION = "keySystemNoSession";
+type K_KEY_SYSTEM_LICENSE_REQUEST_FAILED = "keySystemLicenseRequestFailed";
+type K_KEY_SYSTEM_KEYS_SET = "keySystemKeysSet";
 // MUX_ERROR //
 type K_REMUX_ALLOC_ERROR = "remuxAllocError";
 // OTHER_ERROR //
@@ -792,7 +800,35 @@ declare namespace Hls {
          * Useful when browser or tab of the browser is not in the focus and bandwidth drops
          */
         minAutoBitrate: number;
+        /**
+         * (default: false)
+         * Whether EME should be configured
+         */
+        emeEnabled: boolean;
+        /**
+         * (default: undefined)
+         * When EME is enabled, used to request Media Key System Access
+         * Implemented by client so specific Key System access can be requested
+         */
+        requestMediaKeySystemAccessFunc: (supportedConfigurations: MediaKeySystemConfiguration[]) => Promise<MediaKeySystemAccess>;
+        /**
+         * (default: undefined)
+         * When EME is enabled, used to get initialization data to generate a request with the Media Keys Session
+         * Implemented by client so custom intialization data can be provided
+         */
+        getEMEInitializationDataFunc: (levelOrAudioTrack: Level | AudioTrack) => Promise<EMEInitDataInfo>;
+        /**
+         * (default: undefined)
+         * When EME is enabled, used to get the license to apply to the Media Key Session
+         * Implemented by client so custom license requests can be implemented
+         */
+        getEMELicenseFunc: (event: MediaKeyMessageEvent) => Promise<ArrayBuffer>;
     }
+
+    interface EMEInitDataInfo {
+        initDataType: string;
+        initData: ArrayBuffer;
+      }
 
     interface mediaAttachingData {
         video: HTMLVideoElement;
@@ -1470,6 +1506,16 @@ declare class Hls {
          * data: { previousState, nextState }
          */
         STREAM_STATE_TRANSITION: K_STREAM_STATE_TRANSITION;
+        /**
+         * fired when EME configuration begins
+         * data: { }
+         */
+        EME_CONFIGURING: K_EME_CONFIGURING;
+        /**
+         * fired when EME has been successfully configured
+         * data: { }
+         */
+        EME_CONFIGURED: K_EME_CONFIGURED;
     };
     /**
      * Hls error types
@@ -1614,6 +1660,33 @@ declare class Hls {
          * data: { type: MEDIA_ERROR, details: Hls.ErrorDetails.BUFFERED_STALLED_ERROR, fatal: true }
          */
         BUFFER_NUDGE_ON_STALL: K_BUFFER_NUDGE_ON_STALL;
+
+        // KEY_SYSTEM_ERROR //
+        /**
+         * raised when Media Keys cannot be set on media
+         * data: { type: KEY_SYSTEM_ERROR, details: Hls.ErrorDetails.KEY_SYSTEM_NO_KEYS, fatal: true }
+         */
+        KEY_SYSTEM_NO_KEYS: K_KEY_SYSTEM_NO_KEYS;
+        /**
+         * raised when MediaKeySystemAccess cannot be obtained
+         * data: { type: KEY_SYSTEM_ERROR, details: Hls.ErrorDetails.KEY_SYSTEM_NO_ACCESS, fatal: true }
+         */
+        KEY_SYSTEM_NO_ACCESS: K_KEY_SYSTEM_NO_ACCESS;
+        /**
+         * raised when unable to create a session on MediaKeys
+         * data: { type: KEY_SYSTEM_ERROR, details: Hls.ErrorDetails.KEY_SYSTEM_NO_SESSION, fatal: true }
+         */
+        KEY_SYSTEM_NO_SESSION: K_KEY_SYSTEM_NO_SESSION;
+        /**
+         * raised when EME license request fails
+         * data: { type: KEY_SYSTEM_ERROR, details: Hls.ErrorDetails.KEY_SYSTEM_LICENSE_REQUEST_FAILED, fatal: true }
+         */
+        KEY_SYSTEM_LICENSE_REQUEST_FAILED: K_KEY_SYSTEM_LICENSE_REQUEST_FAILED;
+        /**
+         * raised when MediaKeys have already been set on the media
+         * data: { type: KEY_SYSTEM_ERROR, details: Hls.ErrorDetails.KEY_SYSTEM_KEYS_SET, fatal: true }
+         */
+        KEY_SYSTEM_KEYS_SET: K_KEY_SYSTEM_KEYS_SET;
 
         // MUX_ERROR //
         /**
@@ -1834,6 +1907,9 @@ declare class Hls {
     on(event: K_KEY_LOADING, callback: (event: K_KEY_LOADING, data: Hls.keyLoadingData) => void): void;
     on(event: K_KEY_LOADED, callback: (event: K_KEY_LOADED, data: Hls.keyLoadedData) => void): void;
     on(event: K_STREAM_STATE_TRANSITION, callback: (event: K_STREAM_STATE_TRANSITION, data: Hls.streamStateTransitionData) => void): void;
+    on(event: K_EME_CONFIGURING, callback: (event: K_EME_CONFIGURING, data: {}) => void): void;
+    on(event: K_EME_CONFIGURED, callback: (event: K_EME_CONFIGURED, data: {}) => void): void;
+
     /**
      * hls.js single event listener
      */
@@ -1888,6 +1964,8 @@ declare class Hls {
     once(event: K_KEY_LOADING, callback: (event: K_KEY_LOADING, data: Hls.keyLoadingData) => void): void;
     once(event: K_KEY_LOADED, callback: (event: K_KEY_LOADED, data: Hls.keyLoadedData) => void): void;
     once(event: K_STREAM_STATE_TRANSITION, callback: (event: K_STREAM_STATE_TRANSITION, data: Hls.streamStateTransitionData) => void): void;
+    once(event: K_EME_CONFIGURING, callback: (event: K_EME_CONFIGURING, data: {}) => void): void;
+    once(event: K_EME_CONFIGURED, callback: (event: K_EME_CONFIGURED, data: {}) => void): void;
 
     /**
      * remove hls.js event listener
